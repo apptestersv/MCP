@@ -1,0 +1,13 @@
+{
+  "name": "mcp-server",
+  "version": "1.0.0",
+  "description": "Servidor MCP para Yeastar con Fake Store API",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
