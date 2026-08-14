@@ -97,23 +97,31 @@ app.use(express.json());
 let transport; // Variable para mantener el transporte activo
 
 // Ruta donde Yeastar se conectará (GET)
+// Reemplaza TU app.get("/mcp"...) actual por este:
+
 app.get("/mcp", async (req, res) => {
   console.log("Yeastar solicitó conexión SSE...");
   
-  // Configuramos el transporte SSE. El segundo parámetro es el endpoint POST para los mensajes
+  // CRUCIAL: Forzar el Content-Type exacto que exige Yeastar P-Series
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+  });
+  
+  // Configuramos el transporte SSE usando la respuesta (res)
   transport = new SSEServerTransport("/mcp/message", res);
   
   try {
     await server.connect(transport);
-    console.log("✅ Yeastar conectado exitosamente al servidor MCP vía SSE.");
+    console.log("✅ Conexión SSE establecida con Yeastar.");
     
-    // Cuando la conexión se cierre (Yeastar se desconecta)
     req.on("close", () => {
-      console.log("Yeastar se ha desconectado.");
+      console.log("Yeastar cerró la conexión.");
     });
   } catch (error) {
     console.error("Error conectando a Yeastar:", error);
-    res.status(500).send("Error interno del servidor MCP");
+    // No enviar res.status aquí porque ya enviamos writeHead
   }
 });
 
