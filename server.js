@@ -4,12 +4,10 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { 
   CallToolRequestSchema, 
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema
+  ListToolsRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 
-// 1. Crear la instancia del servidor MCP
+// 1. Crear el servidor MCP
 const server = new Server(
   {
     name: "yeastar-helper-sse",
@@ -18,18 +16,17 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
-      resources: {}
     },
   }
 );
 
-// 2. Definir las HERRAMIENTAS (Tools) que Yeastar va a ver
+// 2. Definir las Herramientas (Tools) que Yeastar podrá ver
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
         name: "saludar",
-        description: "Una herramienta de prueba para verificar que la conexión funciona",
+        description: "Una herramienta de prueba para verificar la conexión con Yeastar",
         inputSchema: {
           type: "object",
           properties: {
@@ -43,7 +40,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "consultar_cliente",
-        description: "Busca información de un cliente por su número de teléfono en la base de datos",
+        description: "Busca información de un cliente por su número de teléfono",
         inputSchema: {
           type: "object",
           properties: {
@@ -59,29 +56,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// 3. Ejecutar la lógica cuando Yeastar llama a una herramienta
+// 3. Ejecutar la lógica cuando Yeastar active una herramienta
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const toolName = request.params.name;
   const args = request.params.arguments;
 
   if (toolName === "saludar") {
     const nombre = args.nombre || "Invitado";
+    console.log(`Herramienta 'saludar' ejecutada para: ${nombre}`);
     return {
       content: [{ 
         type: "text", 
-        text: `¡Hola ${nombre}! La conexión con Render y Yeastar ha sido exitosa a través de Streamable HTTP.` 
+        text: `¡Hola ${nombre}! La conexión con Render y Yeastar está funcionando perfectamente.` 
       }]
     };
   }
 
   if (toolName === "consultar_cliente") {
     const telefono = args.telefono;
-    // Aquí puedes conectar a tu base de datos SQL, Excel o API externa.
-    // De momento, devolvemos un ejemplo simulado:
+    console.log(`Buscando cliente con teléfono: ${telefono}`);
     return {
       content: [{ 
         type: "text", 
-        text: `Cliente encontrado para el número ${telefono}. Nombre: Juan Pérez. Saldo: $0.00.` 
+        text: `Cliente encontrado para el número ${telefono}. Nombre: Juan Pérez.` 
       }]
     };
   }
@@ -89,55 +86,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   throw new Error(`Herramienta desconocida: ${toolName}`);
 });
 
-// 4. CONFIGURACIÓN DEL SERVIDOR HTTP / STREAMABLE HTTP (SSE)
+// 4. Configuración del servidor HTTP Express
 const app = express();
-app.use(cors()); // Permite que Yeastar se conecte sin bloqueos de seguridad
+app.use(cors()); // Permite conexiones externas
 app.use(express.json());
 
-let transport; // Variable para mantener el transporte activo
+// Variable para guardar el transporte activo
+let activeTransport = null;
 
-// Ruta donde Yeastar se conectará (GET)
-// Reemplaza TU app.get("/mcp"...) actual por este:
-
+// Ruta donde Yeastar se conectará para abrir el canal (GET)
+// CRUCIAL: SSEServerTransport manejará los headers correctos para evitar el error de escritura doble
 app.get("/mcp", async (req, res) => {
-  console.log("Yeastar solicitó conexión SSE...");
-  
-  // CRUCIAL: Forzar el Content-Type exacto que exige Yeastar P-Series
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-  });
-  
-  // Configuramos el transporte SSE usando la respuesta (res)
-  transport = new SSEServerTransport("/mcp/message", res);
+  console.log("=== Yeastar está solicitando conexión SSE ===");
   
   try {
+    // Inicializamos el transporte SSE usando directamente la respuesta de Express
+    // Así, el SDK maneja los headers 'text/event-stream' sin conflictos
+    const transport = new SSEServerTransport("/mcp/message", res);
+    activeTransport = transport; // Lo guardamos para usarlo en el POST
+
     await server.connect(transport);
-    console.log("✅ Conexión SSE establecida con Yeastar.");
-    
+    console.log("✅ CONEXIÓN EXITOSA: Yeastar conectado al servidor MCP.");
+
+    // Cuando Yeastar cierra la ventana o se desconecta
     req.on("close", () => {
-      console.log("Yeastar cerró la conexión.");
+      console.log("Yeastar ha cerrado la conexión.");
+      activeTransport = null;
     });
+
   } catch (error) {
     console.error("Error conectando a Yeastar:", error);
-    // No enviar res.status aquí porque ya enviamos writeHead
+    // No enviamos res.status aquí para evitar el error "Headers already sent"
   }
 });
 
-// Ruta donde Yeastar enviará los comandos y respuestas (POST)
+// Ruta donde Yeastar enviará las peticiones de herramientas (POST)
 app.post("/mcp/message", async (req, res) => {
-  console.log("Mensaje recibido de Yeastar:", req.body);
-  if (transport) {
-    await transport.handlePostMessage(req, res);
+  console.log("Recibido mensaje POST de Yeastar...");
+  
+  if (activeTransport) {
+    // Pasamos la petición al SDK para que la procese
+    await activeTransport.handlePostMessage(req, res);
   } else {
+    console.warn("Se recibió un POST pero no hay un canal SSE abierto.");
     res.status(400).send("No hay conexión SSE activa.");
   }
 });
 
-// 5. ARRANCAR EL SERVIDOR
-const PORT = process.env.PORT || 10000; // Render usa el 10000 por defecto en sus logs, pero se adapta automático
+// 5. Arrancar el servidor en el puerto que Render asigna
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor MCP Streamable HTTP corriendo en el puerto ${PORT}`);
-  console.log(`🔗 Endpoint MCP listo en: /mcp`);
+  console.log(`🚀 Servidor MCP Streamable HTTP para Yeastar corriendo en el puerto ${PORT}`);
+  console.log(`🔗 Endpoint configurado en: /mcp`);
+  console.log(`📞 Listo para recibir conexiones desde la P-Series.`);
 });
