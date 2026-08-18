@@ -17,43 +17,63 @@ const server = new Server(
   }
 );
 
-// 1. Registrar las herramientas (AQUÍ es donde defines lo que Yeastar verá)
-server.tool(
-  "test_tool_render",
-  "Esta es una herramienta de prueba alojada en Render",
+// ---------------------------------------------------------
+// CAMBIO AQUÍ: Usamos la sintaxis clásica para definir herramientas
+// ---------------------------------------------------------
+const MIS_HERRAMIENTAS = [
   {
-    type: "object",
-    properties: {
-      mensaje: { type: "string" }
+    name: "test_tool_render",
+    description: "Esta es una herramienta de prueba alojada en Render",
+    inputSchema: {
+      type: "object",
+      properties: {
+        mensaje: { type: "string" }
+      }
     }
-  },
-  async (args) => {
-    return {
-      content: [{ type: "text", text: `Render ejecutó tu herramienta con: ${args.mensaje}` }]
-    };
   }
-);
+];
 
-// 2. El handler para devolver la lista de herramientas a Yeastar
+// ---------------------------------------------------------
+// Handler que responde a la lista de herramientas (tools/list)
+// ---------------------------------------------------------
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: Array.from(server.tools.values()) // Devuelve las herramientas registradas
+    tools: MIS_HERRAMIENTAS
   };
 });
 
-// 3. Configurar el transporte SSE para Render
+// ---------------------------------------------------------
+// Handler que ejecuta la herramienta (tools/call)
+// Nota: Muchos clientes MCP necesitan el método 'call' para poder usar la herramienta
+// ---------------------------------------------------------
+server.setRequestHandler(server.requestSchema, async (request) => {
+  if (request.method === "tools/call") {
+    const { name, arguments: args } = request.params;
+    
+    if (name === "test_tool_render") {
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Render ejecutó tu herramienta con: ${args.mensaje || "Sin mensaje"}` 
+        }]
+      };
+    }
+  }
+});
+
+// ---------------------------------------------------------
+// Configuración del transporte SSE para Render
+// ---------------------------------------------------------
 let transport;
-// Render requiere usar el puerto que le asigna la plataforma (process.env.PORT)
+// Render asigna el puerto automáticamente en process.env.PORT
 const PORT = process.env.PORT || 3000;
 
-// Ruta que usará Yeastar para conectarse
 app.get("/sse", async (req, res) => {
   console.log("Cliente (Yeastar) conectado al SSE");
   transport = new SSEServerTransport("/messages", res);
   await server.connect(transport);
 });
 
-// Ruta para recibir los mensajes de vuelta de Yeastar
 app.post("/messages", async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
