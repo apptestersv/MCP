@@ -8,24 +8,23 @@ import {
 
 const app = express();
 
-// Crear el servidor MCP
 const server = new Server(
   {
-    name: "mi-servidor-mcp-render",
+    name: "mcp-render-server",
     version: "1.0.0",
   },
   {
     capabilities: {
-      tools: {}, // Obligatorio para anunciar herramientas
+      tools: {},
     },
   }
 );
 
-// 1. Definir las herramientas en un array
+// Definimos la herramienta
 const MIS_HERRAMIENTAS = [
   {
     name: "test_tool_render",
-    description: "Una herramienta de prueba alojada en Render",
+    description: "Herramienta de prueba en Render",
     inputSchema: {
       type: "object",
       properties: {
@@ -35,48 +34,50 @@ const MIS_HERRAMIENTAS = [
   },
 ];
 
-// 2. Manejador para LISTAR herramientas (tools/list)
+// Manejador para listar herramientas
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: MIS_HERRAMIENTAS,
-  };
+  console.log("🛠️ Yeastar preguntó por la lista de herramientas.");
+  return { tools: MIS_HERRAMIENTAS };
 });
 
-// 3. Manejador para EJECUTAR herramientas (tools/call)
+// Manejador para ejecutar herramientas
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-
+  console.log(`🚀 Yeastar ejecutó la herramienta: ${name}`);
+  
   if (name === "test_tool_render") {
     return {
-      content: [
-        {
-          type: "text",
-          text: `✅ Render ejecutó tu herramienta con el mensaje: "${args.mensaje || 'Sin mensaje'}"`,
-        },
-      ],
+      content: [{ type: "text", text: `✅ Éxito: ${args.mensaje || 'Sin mensaje'}` }],
     };
   }
-
   throw new Error(`Herramienta desconocida: ${name}`);
 });
 
 // ---------------------------------------------------------
-// Configuración del transporte SSE para Render
+// CONFIGURACIÓN DEL SERVIDOR WEB (EXPRESS)
 // ---------------------------------------------------------
-let transport;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Forzamos el puerto 10000 si no lo da Render
 
+// 1. Ruta RAÍZ (Para que Render haga su Health Check y no muera)
+app.get("/", (req, res) => {
+  res.status(200).send("Servidor MCP activo");
+});
+
+// 2. Ruta para conectar SSE (La que usa Yeastar)
+let transport;
 app.get("/sse", async (req, res) => {
-  console.log("✅ Yeastar se ha conectado al servidor MCP en Render");
+  console.log("✅ ¡Yeastar se ha conectado exitosamente al SSE!");
   transport = new SSEServerTransport("/messages", res);
   await server.connect(transport);
 });
 
+// 3. Ruta para recibir mensajes de Yeastar
 app.post("/messages", async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
-// Iniciar el servidor web
+// Iniciar el servidor
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor MCP corriendo en Render en el puerto ${PORT}`);
+  console.log(`🚀 Servidor MCP corriendo en el puerto ${PORT}`);
+  console.log(`🌐 URL disponible en: https://mcp-s8k7.onrender.com/sse`);
 });
