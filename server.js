@@ -1,143 +1,256 @@
-import express from "express";
-import cors from "cors";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { 
-  CallToolRequestSchema, 
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema
-} from "@modelcontextprotocol/sdk/types.js";
+import { createServer } from 'http';
 
-// 1. Configuración del servidor MCP
-const server = new Server(
-  {
-    name: "yeastar-mcp-helper",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-      resources: {}
-    },
-  }
-);
+// ============================================
+// IMPLEMENTACIÓN MCP PARA YEASTAR
+// ============================================
 
-// 2. Definir las Herramientas que Yeastar podrá ver y usar
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  console.log("Yeastar está solicitando la lista de herramientas...");
-  return {
-    tools: [
-      {
-        name: "saludar",
-        description: "Una herramienta de prueba para verificar la conexión MCP.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            nombre: {
-              type: "string",
-              description: "El nombre de la persona a saludar",
-            },
-          },
-          required: ["nombre"],
-        },
-      },
-      {
-        name: "consultar_cliente",
-        description: "Busca información de un cliente por su número de teléfono.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            telefono: {
-              type: "string",
-              description: "El número de teléfono del cliente (ej: 555-1234)",
-            },
-          },
-          required: ["telefono"],
-        },
-      },
-    ],
-  };
-});
+const server = createServer(async (req, res) => {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
-// 3. Lógica para ejecutar las herramientas cuando Yeastar las active
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const toolName = request.params.name;
-  const args = request.params.arguments || {};
-
-  console.log(`Herramienta ejecutada: "${toolName}"`, args);
-
-  let respuesta = "Lo siento, no pude procesar la solicitud.";
-
-  // Lógica de la herramienta 'saludar'
-  if (toolName === "saludar") {
-    const nombre = args.nombre || "Invitado";
-    respuesta = `¡Hola ${nombre}! La conexión MCP con Yeastar está funcionando perfectamente.`;
-  } 
-  // Lógica de la herramienta 'consultar_cliente'
-  else if (toolName === "consultar_cliente") {
-    const telefono = args.telefono || "desconocido";
-    // Aquí puedes conectar con tu base de datos real.
-    respuesta = `Cliente encontrado para el número ${telefono}. Nombre: Juan Pérez. Estado: Activo.`;
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
   }
 
-  return {
-    content: [{ type: "text", text: respuesta }]
-  };
-});
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  console.log(`📩 ${req.method} ${url.pathname}`);
 
-// 4. Configuración del servidor Express
-const app = express();
-app.use(cors()); // Permite conexiones externas
-app.use(express.json());
-
-let activeTransport = null;
-
-// === RUTA PRINCIPAL (GET) para abrir el canal SSE ===
-// Aquí está la corrección de los Headers para que Yeastar ponga el círculo verde
-app.get("/mcp", async (req, res) => {
-  console.log("Yeastar solicitó conexión SSE...");
-  
-  // Forzamos los headers exactos que exige la P-Series para validar el servidor
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.flushHeaders(); // Envía los headers inmediatamente
-
-  try {
-    // Creamos el transporte usando la misma ruta para POST
-    const transport = new SSEServerTransport("/mcp", res);
-    activeTransport = transport;
-    
-    // Conectamos el servidor MCP al transporte
-    await server.connect(transport);
-    console.log("✅ ¡VALIDACIÓN EXITOSA! Yeastar ha conectado y validado el servidor.");
-    
-    // Manejo de desconexión
-    req.on("close", () => {
-      console.log("Yeastar cerró la conexión SSE.");
-      activeTransport = null;
+  // ============================================
+  // ENDPOINT MCP - SSE (para descubrimiento)
+  // ============================================
+  if (url.pathname === '/mcp' && req.method === 'GET') {
+    // Respuesta para el descubrimiento de herramientas
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
     });
-
-  } catch (error) {
-    console.error("Error crítico conectando a Yeastar:", error);
+    res.end(JSON.stringify({
+      jsonrpc: '2.0',
+      result: {
+        serverInfo: {
+          name: 'Tienda de Prueba Fake Store',
+          version: '1.0.0'
+        },
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {}
+        },
+        tools: [
+          {
+            name: 'getProducts',
+            description: 'Obtiene todos los productos de la tienda de prueba',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          {
+            name: 'getProductById',
+            description: 'Obtiene un producto específico por su ID',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                id: {
+                  type: 'number',
+                  description: 'ID del producto'
+                }
+              },
+              required: ['id']
+            }
+          },
+          {
+            name: 'getProductsByCategory',
+            description: 'Obtiene productos por categoría',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                category: {
+                  type: 'string',
+                  description: 'Categoría: electronics, jewelery, mens clothing, womens clothing'
+                }
+              },
+              required: ['category']
+            }
+          }
+        ]
+      }
+    }));
+    return;
   }
+
+  // ============================================
+  // ENDPOINT MCP - POST (ejecución de herramientas)
+  // ============================================
+  if (url.pathname === '/mcp' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', async () => {
+      try {
+        const requestData = JSON.parse(body || '{}');
+        console.log('📦 Request body:', JSON.stringify(requestData, null, 2));
+
+        // Manejar diferentes formatos de solicitud
+        let toolName = requestData.tool || requestData.name;
+        let params = requestData.params || requestData.parameters || requestData.arguments || {};
+
+        // Si es formato JSON-RPC
+        if (requestData.method === 'tools/call') {
+          const parts = requestData.params?.name?.split('.') || [];
+          toolName = parts[0] || requestData.params?.name;
+          params = requestData.params?.arguments || {};
+        }
+
+        // Si es formato Yeastar directo
+        if (requestData.tool) {
+          toolName = requestData.tool;
+          params = requestData.params || {};
+        }
+
+        console.log(`🔧 Tool: ${toolName}, Params:`, params);
+
+        let result;
+        let error = null;
+
+        try {
+          switch (toolName) {
+            case 'getProducts':
+              const productsRes = await fetch('https://fakestoreapi.com/products');
+              const productsData = await productsRes.json();
+              result = { 
+                content: [{ 
+                  type: 'text', 
+                  text: JSON.stringify(productsData, null, 2) 
+                }]
+              };
+              break;
+
+            case 'getProductById':
+              const id = params.id || params.productId || 1;
+              const productRes = await fetch(`https://fakestoreapi.com/products/${id}`);
+              const productData = await productRes.json();
+              result = { 
+                content: [{ 
+                  type: 'text', 
+                  text: JSON.stringify(productData, null, 2) 
+                }]
+              };
+              break;
+
+            case 'getProductsByCategory':
+              const category = params.category || 'electronics';
+              const categoryRes = await fetch(`https://fakestoreapi.com/products/category/${category}`);
+              const categoryData = await categoryRes.json();
+              result = { 
+                content: [{ 
+                  type: 'text', 
+                  text: JSON.stringify(categoryData, null, 2) 
+                }]
+              };
+              break;
+
+            default:
+              error = `Herramienta "${toolName}" no encontrada. Herramientas disponibles: getProducts, getProductById, getProductsByCategory`;
+              result = {
+                content: [{ type: 'text', text: error }],
+                isError: true
+              };
+          }
+        } catch (err) {
+          error = err.message;
+          result = {
+            content: [{ type: 'text', text: `Error: ${err.message}` }],
+            isError: true
+          };
+        }
+
+        // Formato de respuesta para Yeastar
+        const response = {
+          jsonrpc: '2.0',
+          id: requestData.id || null,
+          result: result
+        };
+
+        if (error) {
+          response.error = {
+            code: -32000,
+            message: error
+          };
+        }
+
+        res.writeHead(200, { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify(response));
+
+        console.log('✅ Respuesta enviada');
+
+      } catch (error) {
+        console.error('❌ Error:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: `Error interno: ${error.message}`
+          }
+        }));
+      }
+    });
+    return;
+  }
+
+  // ============================================
+  // HEALTH CHECK
+  // ============================================
+  if (url.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ 
+      status: 'ok',
+      timestamp: new Date().toISOString()
+    }));
+    return;
+  }
+
+  // ============================================
+  // API LEGACY (para pruebas)
+  // ============================================
+  if (url.pathname === '/api/products') {
+    const response = await fetch('https://fakestoreapi.com/products');
+    const data = await response.json();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(data));
+    return;
+  }
+
+  // ============================================
+  // ROOT
+  // ============================================
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    name: 'MCP Server para Yeastar',
+    version: '1.0.0',
+    description: 'Servidor MCP para conectar Yeastar P-Series con Fake Store API',
+    endpoints: {
+      mcp: 'GET/POST https://' + req.headers.host + '/mcp',
+      health: 'GET https://' + req.headers.host + '/health',
+      api_products: 'GET https://' + req.headers.host + '/api/products'
+    }
+  }));
 });
 
-// === RUTA DE MENSAJES (POST) ===
-// Yeastar envía aquí las peticiones para ejecutar las herramientas
-app.post("/mcp", async (req, res) => {
-  console.log("Mensaje POST recibido (ejecutando herramienta)...");
-  if (activeTransport) {
-    await activeTransport.handlePostMessage(req, res);
-  } else {
-    res.status(400).send("No hay un canal SSE activo en este momento.");
-  }
-});
-
-// 5. Arrancar el servidor en el puerto asignado por Render
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor MCP Streamable HTTP para Yeastar corriendo en puerto ${PORT}`);
-  console.log(`🔗 Endpoint configurado en: /mcp`);
+const PORT = process.env.PORT || 8787;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`========================================`);
+  console.log(`✅ Servidor MCP para Yeastar`);
+  console.log(`📡 URL: http://0.0.0.0:${PORT}`);
+  console.log(`🔗 Endpoint MCP: http://0.0.0.0:${PORT}/mcp`);
+  console.log(`💚 Health: http://0.0.0.0:${PORT}/health`);
+  console.log(`========================================`);
 });
