@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: mcp-server-yeastar
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0
+      - key: NODE_ENV
+        value: production
