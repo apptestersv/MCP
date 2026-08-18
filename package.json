@@ -1,11 +1,17 @@
 {
-  "name": "mcp-server",
+  "name": "mcp-server-yeastar",
   "version": "1.0.0",
+  "description": "Servidor MCP para conectar Yeastar P-Series con Fake Store API",
+  "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": ["mcp", "yeastar", "fake-store", "ai-receptionist"],
+  "author": "Tu Nombre",
+  "license": "MIT"
 }
