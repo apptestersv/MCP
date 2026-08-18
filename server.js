@@ -1,8 +1,24 @@
 import { createServer } from 'http';
 
+// ============================================
+// DATOS DE PRUEBA LOCALES
+// ============================================
+const MOCK_PRODUCTS = [
+  { id: 1, title: "Producto de Prueba 1", price: 29.99, category: "electronics", description: "Descripción del producto 1" },
+  { id: 2, title: "Producto de Prueba 2", price: 49.99, category: "jewelery", description: "Descripción del producto 2" },
+  { id: 3, title: "Producto de Prueba 3", price: 19.99, category: "mens clothing", description: "Descripción del producto 3" },
+  { id: 4, title: "Producto de Prueba 4", price: 39.99, category: "womens clothing", description: "Descripción del producto 4" },
+  { id: 5, title: "Producto de Prueba 5", price: 59.99, category: "electronics", description: "Descripción del producto 5" }
+];
+
+const MOCK_USERS = [
+  { id: 1, name: "Usuario Prueba 1", email: "test1@example.com" },
+  { id: 2, name: "Usuario Prueba 2", email: "test2@example.com" }
+];
+
 const server = createServer(async (req, res) => {
   // ============================================
-  // CONFIGURACIÓN CORS (necesario para Yeastar)
+  // CONFIGURACIÓN CORS
   // ============================================
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -10,7 +26,6 @@ const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Content-Type', 'application/json');
 
-  // Responder a preflight (OPTIONS)
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
@@ -21,73 +36,21 @@ const server = createServer(async (req, res) => {
   console.log(`📩 ${req.method} ${url.pathname}`);
 
   // ============================================
-  // ENDPOINT MCP - GET (Descubrimiento de herramientas)
+  // ENDPOINT MCP - GET (Descubrimiento)
   // ============================================
   if (url.pathname === '/mcp' && req.method === 'GET') {
     res.writeHead(200);
     res.end(JSON.stringify({
       jsonrpc: '2.0',
       result: {
-        serverInfo: {
-          name: 'Tienda de Prueba Fake Store',
-          version: '1.0.0'
-        },
-        capabilities: {
-          tools: {}
-        },
+        serverInfo: { name: 'Tienda de Prueba Fake Store', version: '1.0.0' },
+        capabilities: { tools: {} },
         tools: [
-          {
-            name: 'getProducts',
-            description: 'Obtiene todos los productos de la tienda de prueba',
-            inputSchema: {
-              type: 'object',
-              properties: {}
-            }
-          },
-          {
-            name: 'getProductById',
-            description: 'Obtiene un producto específico por su ID',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                id: {
-                  type: 'number',
-                  description: 'ID del producto a consultar'
-                }
-              },
-              required: ['id']
-            }
-          },
-          {
-            name: 'getProductsByCategory',
-            description: 'Obtiene productos por categoría',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                category: {
-                  type: 'string',
-                  description: 'Categoría: electronics, jewelery, mens clothing, womens clothing'
-                }
-              },
-              required: ['category']
-            }
-          },
-          {
-            name: 'getUsers',
-            description: 'Obtiene todos los usuarios de la tienda de prueba',
-            inputSchema: {
-              type: 'object',
-              properties: {}
-            }
-          },
-          {
-            name: 'getCarts',
-            description: 'Obtiene todos los carritos de compra',
-            inputSchema: {
-              type: 'object',
-              properties: {}
-            }
-          }
+          { name: 'getProducts', description: 'Obtiene todos los productos', inputSchema: { type: 'object', properties: {} } },
+          { name: 'getProductById', description: 'Obtiene un producto por ID', inputSchema: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] } },
+          { name: 'getProductsByCategory', description: 'Obtiene productos por categoría', inputSchema: { type: 'object', properties: { category: { type: 'string' } }, required: ['category'] } },
+          { name: 'getUsers', description: 'Obtiene todos los usuarios', inputSchema: { type: 'object', properties: {} } },
+          { name: 'getCarts', description: 'Obtiene todos los carritos', inputSchema: { type: 'object', properties: {} } }
         ]
       }
     }));
@@ -95,7 +58,7 @@ const server = createServer(async (req, res) => {
   }
 
   // ============================================
-  // ENDPOINT MCP - POST (Ejecución de herramientas)
+  // ENDPOINT MCP - POST (Ejecución con fallback)
   // ============================================
   if (url.pathname === '/mcp' && req.method === 'POST') {
     let body = '';
@@ -103,136 +66,98 @@ const server = createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const data = JSON.parse(body || '{}');
-        console.log('📦 Body recibido:', JSON.stringify(data, null, 2));
+        console.log('📦 Body:', JSON.stringify(data, null, 2));
 
-        // ============================================
-        // DETECCIÓN DE HERRAMIENTA (múltiples formatos)
-        // ============================================
-        let toolName = null;
-        let params = {};
+        // Detectar herramienta
+        let toolName = data.tool || data.name || (data.params && data.params.name) || data.function;
+        let params = data.params || data.arguments || data.parameters || {};
 
-        // Formato 1: { "tool": "getProducts", "params": {} }
-        if (data.tool) {
-          toolName = data.tool;
-          params = data.params || {};
-        }
-        // Formato 2: { "name": "getProducts", "arguments": {} }
-        else if (data.name) {
-          toolName = data.name;
-          params = data.arguments || data.params || {};
-        }
-        // Formato 3: JSON-RPC { "method": "tools/call", "params": { "name": "getProducts", "arguments": {} } }
-        else if (data.method === 'tools/call' && data.params) {
-          toolName = data.params.name;
-          params = data.params.arguments || {};
-        }
-        // Formato 4: { "function": "getProducts", "parameters": {} }
-        else if (data.function) {
-          toolName = data.function;
-          params = data.parameters || data.params || {};
-        }
+        console.log(`🔧 Tool: ${toolName}, Params:`, params);
 
-        console.log(`🔧 Tool detectada: ${toolName}`);
-        console.log(`📋 Params:`, params);
-
-        // ============================================
-        // EJECUCIÓN DE HERRAMIENTAS
-        // ============================================
         let result = null;
         let error = null;
 
         try {
           switch (toolName) {
             case 'getProducts': {
-              const response = await fetch('https://fakestoreapi.com/products');
-              const products = await response.json();
-              result = {
-                content: [{
-                  type: 'text',
-                  text: JSON.stringify(products, null, 2)
-                }]
-              };
+              try {
+                const response = await fetch('https://fakestoreapi.com/products');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const products = await response.json();
+                result = { content: [{ type: 'text', text: JSON.stringify(products, null, 2) }] };
+              } catch (err) {
+                console.log('⚠️ Usando datos locales para getProducts');
+                result = { content: [{ type: 'text', text: JSON.stringify(MOCK_PRODUCTS, null, 2) }] };
+              }
               break;
             }
 
             case 'getProductById': {
               const id = params.id || 1;
-              const response = await fetch(`https://fakestoreapi.com/products/${id}`);
-              if (!response.ok) {
-                throw new Error(`Producto con ID ${id} no encontrado`);
+              try {
+                const response = await fetch(`https://fakestoreapi.com/products/${id}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const product = await response.json();
+                result = { content: [{ type: 'text', text: JSON.stringify(product, null, 2) }] };
+              } catch (err) {
+                console.log(`⚠️ Usando datos locales para getProductById(${id})`);
+                const mock = MOCK_PRODUCTS.find(p => p.id === id) || MOCK_PRODUCTS[0];
+                result = { content: [{ type: 'text', text: JSON.stringify(mock, null, 2) }] };
               }
-              const product = await response.json();
-              result = {
-                content: [{
-                  type: 'text',
-                  text: JSON.stringify(product, null, 2)
-                }]
-              };
               break;
             }
 
             case 'getProductsByCategory': {
               const category = params.category || 'electronics';
-              const response = await fetch(`https://fakestoreapi.com/products/category/${category}`);
-              const products = await response.json();
-              result = {
-                content: [{
-                  type: 'text',
-                  text: JSON.stringify(products, null, 2)
-                }]
-              };
+              try {
+                const response = await fetch(`https://fakestoreapi.com/products/category/${category}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const products = await response.json();
+                result = { content: [{ type: 'text', text: JSON.stringify(products, null, 2) }] };
+              } catch (err) {
+                console.log(`⚠️ Usando datos locales para getProductsByCategory(${category})`);
+                const filtered = MOCK_PRODUCTS.filter(p => p.category === category);
+                result = { content: [{ type: 'text', text: JSON.stringify(filtered.length ? filtered : MOCK_PRODUCTS, null, 2) }] };
+              }
               break;
             }
 
             case 'getUsers': {
-              const response = await fetch('https://fakestoreapi.com/users');
-              const users = await response.json();
-              result = {
-                content: [{
-                  type: 'text',
-                  text: JSON.stringify(users, null, 2)
-                }]
-              };
+              try {
+                const response = await fetch('https://fakestoreapi.com/users');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const users = await response.json();
+                result = { content: [{ type: 'text', text: JSON.stringify(users, null, 2) }] };
+              } catch (err) {
+                console.log('⚠️ Usando datos locales para getUsers');
+                result = { content: [{ type: 'text', text: JSON.stringify(MOCK_USERS, null, 2) }] };
+              }
               break;
             }
 
             case 'getCarts': {
-              const response = await fetch('https://fakestoreapi.com/carts');
-              const carts = await response.json();
-              result = {
-                content: [{
-                  type: 'text',
-                  text: JSON.stringify(carts, null, 2)
-                }]
-              };
+              try {
+                const response = await fetch('https://fakestoreapi.com/carts');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const carts = await response.json();
+                result = { content: [{ type: 'text', text: JSON.stringify(carts, null, 2) }] };
+              } catch (err) {
+                console.log('⚠️ Usando datos locales para getCarts');
+                result = { content: [{ type: 'text', text: JSON.stringify([], null, 2) }] };
+              }
               break;
             }
 
             default: {
-              error = `Herramienta "${toolName}" no encontrada. Herramientas disponibles: getProducts, getProductById, getProductsByCategory, getUsers, getCarts`;
-              result = {
-                content: [{
-                  type: 'text',
-                  text: error
-                }],
-                isError: true
-              };
+              error = `Herramienta "${toolName}" no encontrada. Disponibles: getProducts, getProductById, getProductsByCategory, getUsers, getCarts`;
+              result = { content: [{ type: 'text', text: error }], isError: true };
             }
           }
         } catch (err) {
           error = err.message;
-          result = {
-            content: [{
-              type: 'text',
-              text: `Error: ${err.message}`
-            }],
-            isError: true
-          };
+          result = { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
         }
 
-        // ============================================
-        // RESPUESTA (formato Yeastar/JSON-RPC)
-        // ============================================
         const response = {
           jsonrpc: '2.0',
           id: data.id || null,
@@ -240,10 +165,7 @@ const server = createServer(async (req, res) => {
         };
 
         if (error) {
-          response.error = {
-            code: -32000,
-            message: error
-          };
+          response.error = { code: -32000, message: error };
         }
 
         res.writeHead(200);
@@ -255,10 +177,7 @@ const server = createServer(async (req, res) => {
         res.writeHead(500);
         res.end(JSON.stringify({
           jsonrpc: '2.0',
-          error: {
-            code: -32603,
-            message: `Error interno: ${error.message}`
-          }
+          error: { code: -32603, message: `Error interno: ${error.message}` }
         }));
       }
     });
@@ -266,56 +185,31 @@ const server = createServer(async (req, res) => {
   }
 
   // ============================================
-  // HEALTH CHECK (para Render)
+  // HEALTH CHECK
   // ============================================
   if (url.pathname === '/health') {
     res.writeHead(200);
-    res.end(JSON.stringify({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    }));
+    res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() }));
     return;
   }
 
   // ============================================
-  // ENDPOINT LEGACY /api/products (para pruebas)
-  // ============================================
-  if (url.pathname === '/api/products') {
-    try {
-      const response = await fetch('https://fakestoreapi.com/products');
-      const data = await response.json();
-      res.writeHead(200);
-      res.end(JSON.stringify(data));
-    } catch (error) {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: error.message }));
-    }
-    return;
-  }
-
-  // ============================================
-  // RAIZ (/) - Mensaje de bienvenida
+  // RAIZ
   // ============================================
   res.writeHead(200);
   res.end(JSON.stringify({
     name: 'MCP Server para Yeastar P-Series',
     version: '1.0.0',
     status: 'online',
-    description: 'Servidor MCP para conectar Yeastar con Fake Store API',
     endpoints: {
-      mcp_get: 'GET /mcp - Descubrimiento de herramientas',
-      mcp_post: 'POST /mcp - Ejecución de herramientas',
-      health: 'GET /health - Health check',
-      api_products: 'GET /api/products - Lista de productos (legacy)'
+      mcp_get: 'GET /mcp - Descubrimiento',
+      mcp_post: 'POST /mcp - Ejecución',
+      health: 'GET /health - Health check'
     },
     tools: ['getProducts', 'getProductById', 'getProductsByCategory', 'getUsers', 'getCarts']
   }));
 });
 
-// ============================================
-// INICIO DEL SERVIDOR
-// ============================================
 const PORT = process.env.PORT || 8787;
 server.listen(PORT, '0.0.0.0', () => {
   console.log('========================================');
